@@ -1,0 +1,18 @@
+services:
+  TideFlowControl:
+    build:
+      context: .
+    container_name: TideFlowControl
+    restart: unless-stopped
+    env_file:
+      # 从 .env 文件加载环境变量作为配置
+      - .env
+    environment:
+      - TZ=Asia/Shanghai
+    volumes:
+      # 使用具名卷来持久化状态文件
+      - tideflowcontrol_data:/app/data
+
+volumes:
+  # 定义具名卷
+  tideflowcontrol_data:
