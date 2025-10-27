@@ -1,7 +1,6 @@
 services:
   TideFlowControl:
-    build:
-      context: .
+    image: aierliz/tideflowcontrol
     container_name: TideFlowControl
     restart: unless-stopped
     env_file:
