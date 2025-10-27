@@ -1,11 +1,12 @@
 # TideFlowControl
 
-TideFlowControl 是一个同时支持 HTTP 和 Torrent 协议的下载器。
+TideFlowControl 是一个同时支持 HTTP 和 Torrent 协议的下载器，流式下载，不写入磁盘。
 
 ## 功能特性
 
 - 通过 HTTP/HTTPS 下载文件
 - 通过 Torrent 文件或磁力链接下载文件
+- 流式下载，不写入磁盘
 - 配置简单
 - 支持 Docker 快速部署
 
