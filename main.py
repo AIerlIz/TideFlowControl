@@ -13,7 +13,7 @@ from time_utils import is_in_time_window, get_next_allowed_time_start
 
 # 在主模块中进行一次全局日志配置
 logging.basicConfig(
-    level=logging.INFO,
+    level=config.LOG_LEVEL,
     format='%(asctime)s - %(processName)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)

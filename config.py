@@ -46,3 +46,6 @@ STATE_FILE = "/app/data/download_state.json"
 
 # 7. 下载块大小 (Bytes)
 CHUNK_SIZE = 1024 * 1024  # 1 MB
+
+# 8. 日志级别
+LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
