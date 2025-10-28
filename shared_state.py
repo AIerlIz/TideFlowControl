@@ -6,9 +6,10 @@ import os
 import logging
 from datetime import datetime
 
-import config
-
 logger = logging.getLogger(__name__)
+
+# 状态持久化文件路径
+STATE_FILE = "data/download_state.json"
 
 class SharedState:
     """
@@ -60,14 +61,16 @@ class SharedState:
                 'bytes_downloaded': self._bytes_downloaded.value,
                 'last_reset_time': self._last_reset_time.value
             }
-            with open(config.STATE_FILE, 'w') as f:
+            # 确保目录存在
+            os.makedirs(os.path.dirname(STATE_FILE), exist_ok=True)
+            with open(STATE_FILE, 'w') as f:
                 json.dump(state, f)
             logger.debug(f"状态已保存: {state}")
 
     def load_state(self):
-        if os.path.exists(config.STATE_FILE):
+        if os.path.exists(STATE_FILE):
             with self._lock:
-                with open(config.STATE_FILE, 'r') as f:
+                with open(STATE_FILE, 'r') as f:
                     state = json.load(f)
                     self._bytes_downloaded.value = state.get('bytes_downloaded', 0.0)
                     self._last_reset_time.value = state.get('last_reset_time', time.time())
