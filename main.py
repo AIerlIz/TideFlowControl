@@ -217,17 +217,44 @@ def main():
                 # 如果应该暂停
                 if not shared_state.is_paused():
                     shared_state.pause()
-                    pause_reason = "不在允许的时间窗口内" if not in_window else f"已达到下载限制: {current_bytes / (1024**3):.2f}/{config.DOWNLOAD_LIMIT_GB} GB"
-                    logger.info(f"{pause_reason}。正在暂停。")
+                    # 组合暂停原因
+                    pause_reasons = []
+                    if not in_window:
+                        pause_reasons.append("不在允许的时间窗口内")
+                    if current_bytes >= limit_bytes:
+                        pause_reasons.append(f"已达到下载限制: {current_bytes / (1024**3):.2f}/{config.DOWNLOAD_LIMIT_GB} GB")
+                    logger.info(f"{' 且 '.join(pause_reasons)}。正在暂停。")
 
-                # 计算下一个恢复时间并休眠
-                next_resume_time = get_next_allowed_time_start()
-                sleep_duration = (next_resume_time - datetime.now()).total_seconds()
+                # 计算下一个可能的恢复时间
+                possible_resume_times = []
+                now_dt = datetime.now()
+
+                # 如果是因为超出时间窗口，计算下一个窗口的开始时间
+                if not in_window:
+                    possible_resume_times.append(get_next_allowed_time_start())
+
+                # 如果是因为达到下载限制，计算下一个重置时间
+                if current_bytes >= limit_bytes:
+                    reset_time_obj = dt_time.fromisoformat(config.RESET_TIME)
+                    next_reset_dt = now_dt.replace(hour=reset_time_obj.hour, minute=reset_time_obj.minute, second=0, microsecond=0)
+                    if now_dt >= next_reset_dt:
+                        next_reset_dt += timedelta(days=1)
+                    possible_resume_times.append(next_reset_dt)
+                
+                # 如果没有可行的恢复时间（理论上不应发生），则短暂休眠后重试
+                if not possible_resume_times:
+                    logger.warning("无法确定恢复时间，将在60秒后重试。")
+                    time.sleep(60)
+                    continue
+
+                # 选择最晚的时间点，以确保所有暂停条件都已解除
+                next_resume_time = max(possible_resume_times)
+                sleep_duration = (next_resume_time - now_dt).total_seconds()
 
                 if sleep_duration > 0:
                     total_downloaded_gb = shared_state.get_bytes() / (1024**3)
                     logger.info(
-                        f"[已暂停] 总下载量: {total_downloaded_gb:.2f} GB | "
+                        f"[暂停] 总下载量: {total_downloaded_gb:.2f} GB | "
                         f"计划下次恢复时间: {next_resume_time.strftime('%Y-%m-%d %H:%M:%S')}"
                     )
                     shared_state.save_state()
@@ -257,7 +284,7 @@ def main():
                     active_downloads = len([s for s in shared_state._process_speeds.values() if s > 0])
                     
                     logger.info(
-                        f"[状态] 总速度: {total_speed:.2f} MB/s | "
+                        f"[下载] 总速度: {total_speed:.2f} MB/s | "
                         f"活动连接: {active_downloads}/{config.CONCURRENT_DOWNLOADS} | "
                         f"总下载量: {total_downloaded_gb:.2f} GB"
                     )
