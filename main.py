@@ -177,6 +177,10 @@ def main():
     shared_state = SharedState(manager)
     shared_state.load_state()
 
+    # 在启动工作进程前，先强制进入暂停状态，等待主循环进行状态检查
+    shared_state.pause()
+    logger.info("正在进行初始状态检查，下载进程将等待所有状态检查完毕后启动。")
+
     # 启动工作进程
     processes = []
     for i in range(config.CONCURRENT_DOWNLOADS):
