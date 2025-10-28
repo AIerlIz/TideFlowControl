@@ -2,15 +2,14 @@
 
 import multiprocessing
 import time
-import json
-import os
 import random
 import logging
 from datetime import datetime, time as dt_time, timedelta
 
 import config
-from http_downloader import download_http
-from torrent_downloader import download_torrent
+from downloader import download_http, download_torrent
+from shared_state import SharedState
+from time_utils import is_in_time_window, get_next_allowed_time_start
 
 # 在主模块中进行一次全局日志配置
 logging.basicConfig(
@@ -18,126 +17,6 @@ logging.basicConfig(
     format='%(asctime)s - %(processName)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
-
-class SharedState:
-    """
-    一个用于管理所有进程共享状态的类，确保线程安全。
-    """
-    def __init__(self, manager):
-        self._manager = manager
-        self._lock = manager.Lock()
-        self._bytes_downloaded = manager.Value('d', 0.0)
-        self._is_paused = manager.Value('b', False)
-        self._last_reset_time = manager.Value('d', time.time())
-        # 新增：用于存储每个进程的瞬时速度 (MB/s)
-        self._process_speeds = manager.dict()
-
-    def add_bytes(self, num_bytes):
-        with self._lock:
-            self._bytes_downloaded.value += num_bytes
-
-    def get_bytes(self):
-        with self._lock:
-            return self._bytes_downloaded.value
-
-    def is_paused(self):
-        with self._lock:
-            return self._is_paused.value
-
-    def pause(self):
-        with self._lock:
-            if not self._is_paused.value:
-                self._is_paused.value = True
-                logger.info("执行已暂停。")
-
-    def resume(self):
-        with self._lock:
-            if self._is_paused.value:
-                self._is_paused.value = False
-                logger.info("执行已恢复。")
-
-    def reset(self):
-        with self._lock:
-            self._bytes_downloaded.value = 0.0
-            self._last_reset_time.value = time.time()
-            self._process_speeds.clear() # 重置时也清空速度字典
-            logger.info("下载量已重置。")
-
-    def save_state(self):
-        with self._lock:
-            state = {
-                'bytes_downloaded': self._bytes_downloaded.value,
-                'last_reset_time': self._last_reset_time.value
-            }
-            with open(config.STATE_FILE, 'w') as f:
-                json.dump(state, f)
-            logger.debug(f"状态已保存: {state}")
-
-    def load_state(self):
-        if os.path.exists(config.STATE_FILE):
-            with self._lock:
-                with open(config.STATE_FILE, 'r') as f:
-                    state = json.load(f)
-                    self._bytes_downloaded.value = state.get('bytes_downloaded', 0.0)
-                    self._last_reset_time.value = state.get('last_reset_time', time.time())
-                logger.info(f"状态已加载：已下载 {self._bytes_downloaded.value / (1024**3):.2f} GB，上次重置于 {datetime.fromtimestamp(self._last_reset_time.value)}")
-
-    def update_speed(self, process_id, speed_mbps):
-        with self._lock:
-            self._process_speeds[process_id] = speed_mbps
-
-    def get_total_speed_mbps(self):
-        with self._lock:
-            return sum(self._process_speeds.values())
-
-
-def is_in_time_window():
-    """检查当前时间是否在允许的下载时间窗口内"""
-    now = datetime.now().time()
-    for start_str, end_str in config.ALLOWED_TIME_WINDOWS:
-        start_time = dt_time.fromisoformat(start_str)
-        end_time = dt_time.fromisoformat(end_str)
-        if start_time <= end_time:
-            if start_time <= now < end_time:
-                return True
-        else:  # 跨天的时间段
-            if now >= start_time or now < end_time:
-                return True
-    return False
-
-def get_next_allowed_time_start():
-    """
-    计算下一个允许下载时间窗口的开始时间。
-    """
-    now = datetime.now()
-    next_starts = []
-
-    for start_str, _ in config.ALLOWED_TIME_WINDOWS:
-        start_time_obj = dt_time.fromisoformat(start_str)
-        
-        # 尝试今天的开始时间
-        today_start = now.replace(
-            hour=start_time_obj.hour,
-            minute=start_time_obj.minute,
-            second=0, microsecond=0
-        )
-        if today_start > now:
-            next_starts.append(today_start)
-        
-        # 尝试明天的开始时间 (如果今天的已经过了)
-        tomorrow_start = (now + timedelta(days=1)).replace(
-            hour=start_time_obj.hour,
-            minute=start_time_obj.minute,
-            second=0, microsecond=0
-        )
-        next_starts.append(tomorrow_start)
-    
-    if not next_starts:
-        # 如果没有配置时间窗口，或者解析失败，默认明天凌晨开始
-        logger.warning("未配置有效的时间窗口。默认将在明天 00:00 恢复。")
-        return (now + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
-
-    return min(next_starts)
 
 
 def worker_process(process_id, shared_state):
