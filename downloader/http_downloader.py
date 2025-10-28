@@ -16,9 +16,12 @@ def download_http(url: str, shared_state, process_id: int):
     :param process_id: 当前进程的ID，用于日志记录
     """
     logger.info(f"[进程-{process_id}] 开始 HTTP 下载: {url}")
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+    }
     start_time = time.time()
     try:
-        with requests.get(url, stream=True, timeout=30) as r:
+        with requests.get(url, stream=True, timeout=30, headers=headers) as r:
             r.raise_for_status()
             
             bytes_downloaded_session = 0
