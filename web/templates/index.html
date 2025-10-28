@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>下载仪表盘</title>
+    <style>
+        body { font-family: Arial, sans-serif; background-color: #f4f4f9; color: #333; margin: 0; padding: 20px; }
+        .container { max-width: 800px; margin: auto; background: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        h1 { color: #444; text-align: center; }
+        nav { text-align: center; margin-bottom: 20px; }
+        nav a { text-decoration: none; color: #007bff; padding: 10px 15px; border-radius: 5px; transition: background-color 0.3s; }
+        nav a:hover, nav a.active { background-color: #007bff; color: #fff; }
+        .status-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px; }
+        .status-card { background: #f9f9f9; padding: 20px; border-radius: 8px; text-align: center; }
+        .status-card h2 { margin-top: 0; font-size: 1.2em; color: #555; }
+        .status-card p { font-size: 2em; margin: 10px 0; font-weight: bold; }
+        .status-paused { color: #dc3545; }
+        .status-running { color: #28a745; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>下载仪表盘</h1>
+        <nav>
+            <a href="/" class="active">仪表盘</a>
+            <a href="/settings">设置</a>
+        </nav>
+        <div class="status-grid">
+            <div class="status-card">
+                <h2>总下载量</h2>
+                <p id="total-downloaded">-- GB</p>
+            </div>
+            <div class="status-card">
+                <h2>实时速度</h2>
+                <p id="total-speed">-- MB/s</p>
+            </div>
+            <div class="status-card">
+                <h2>活动连接</h2>
+                <p id="active-connections">-- / --</p>
+            </div>
+            <div class="status-card">
+                <h2>状态</h2>
+                <p id="status" class="status-paused">未知</p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function fetchData() {
+            fetch('/api/status')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.error) {
+                        console.error(data.error);
+                        return;
+                    }
+                    document.getElementById('total-downloaded').textContent = `${data.total_downloaded_gb.toFixed(2)} GB`;
+                    document.getElementById('total-speed').textContent = `${data.total_speed_mbps.toFixed(2)} MB/s`;
+                    document.getElementById('active-connections').textContent = `${data.active_connections} / ${data.concurrent_downloads}`;
+                    
+                    const statusEl = document.getElementById('status');
+                    if (data.is_paused) {
+                        statusEl.textContent = '已暂停';
+                        statusEl.className = 'status-paused';
+                    } else {
+                        statusEl.textContent = '下载中';
+                        statusEl.className = 'status-running';
+                    }
+                })
+                .catch(error => console.error('获取状态失败:', error));
+        }
+
+        setInterval(fetchData, 2000); // 每2秒刷新一次
+        fetchData(); // 页面加载时立即获取一次
+    </script>
+</body>
+</html>

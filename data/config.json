@@ -1,0 +1,13 @@
+{
+  "HTTP_URLS": [],
+  "MAGNET_LINKS": [],
+  "CONCURRENT_DOWNLOADS": 5,
+  "DOWNLOAD_LIMIT_GB": 500,
+  "RESET_TIME": "03:00",
+  "ALLOWED_TIME_WINDOWS": [
+    [
+      "00:00",
+      "23:59"
+    ]
+  ]
+}

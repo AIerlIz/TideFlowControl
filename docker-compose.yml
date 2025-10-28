@@ -3,9 +3,8 @@ services:
     image: aierliz/tideflowcontrol
     container_name: TideFlowControl
     restart: unless-stopped
-    env_file:
-      # 从 .env 文件加载环境变量作为配置
-      - .env
+    ports:
+      - "5245:5245"
     environment:
       - TZ=Asia/Shanghai
     volumes:

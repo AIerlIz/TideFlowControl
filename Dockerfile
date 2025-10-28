@@ -34,5 +34,8 @@ COPY --from=builder /install /usr/local
 # 复制项目文件
 COPY . .
 
+# 暴露Web仪表盘端口
+EXPOSE 5245
+
 # 容器启动时执行的命令
 CMD ["python", "main.py"]

@@ -4,12 +4,14 @@ import multiprocessing
 import time
 import random
 import logging
+import threading
 from datetime import datetime, time as dt_time, timedelta
 
-import config
 from downloader import download_http, download_torrent
 from shared_state import SharedState
+from shared_config import SharedConfig
 from time_utils import is_in_time_window, get_next_allowed_time_start
+from web.web_server import run_web_server
 
 # 在主模块中进行一次全局日志配置
 logging.basicConfig(
@@ -19,16 +21,22 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-def worker_process(process_id, shared_state):
+def worker_process(process_id, shared_state, shared_config):
     """
     工作进程的执行体。会不断随机选择任务并执行。
     """
     logger.info(f"工作进程-{process_id} 已启动。")
+    
+    # 注意：工作进程启动时会读取一次任务列表。
+    # 如果通过Web界面修改任务列表，需要重启应用才能让工作进程加载新的列表。
+    http_urls = shared_config.get('HTTP_URLS', [])
+    magnet_links = shared_config.get('MAGNET_LINKS', [])
+    
     all_tasks = []
-    if config.HTTP_URLS:
-        all_tasks.extend([('http', url) for url in config.HTTP_URLS])
-    if config.MAGNET_LINKS:
-        all_tasks.extend([('torrent', link) for link in config.MAGNET_LINKS])
+    if http_urls:
+        all_tasks.extend([('http', url) for url in http_urls])
+    if magnet_links:
+        all_tasks.extend([('torrent', link) for link in magnet_links])
 
     if not all_tasks:
         logger.warning(f"工作进程-{process_id}：未配置下载链接。正在退出。")
@@ -54,24 +62,38 @@ def main():
     
     manager = multiprocessing.Manager()
     shared_state = SharedState(manager)
+    shared_config = SharedConfig(manager)
+    
     shared_state.load_state()
 
     # 在启动工作进程前，先强制进入暂停状态，等待主循环进行状态检查
     shared_state.pause()
     logger.info("正在进行初始状态检查，下载进程将等待所有状态检查完毕后启动。")
 
+    # 启动Web服务器线程
+    web_thread = threading.Thread(
+        target=run_web_server,
+        args=(shared_state, shared_config),
+        daemon=True
+    )
+    web_thread.start()
+
     # 启动工作进程
     processes = []
-    for i in range(config.CONCURRENT_DOWNLOADS):
+    concurrent_downloads = shared_config.get('CONCURRENT_DOWNLOADS', 0)
+    for i in range(concurrent_downloads):
         p = multiprocessing.Process(
             target=worker_process,
-            args=(i, shared_state),
+            args=(i, shared_state, shared_config),
             name=f"Worker-{i}" # 为进程命名
         )
         processes.append(p)
         p.start()
 
-    logger.info(f"{config.CONCURRENT_DOWNLOADS} 个工作进程已启动。")
+    if concurrent_downloads > 0:
+        logger.info(f"{concurrent_downloads} 个工作进程已启动。")
+    else:
+        logger.warning("未配置任何下载任务或并发数为0，没有启动工作进程。")
 
     # 主控制循环
     last_summary_time = time.time()
@@ -81,7 +103,8 @@ def main():
             # 1. 检查并执行每日重置
             now = datetime.now()
             last_reset_dt = datetime.fromtimestamp(shared_state._last_reset_time.value)
-            reset_time_obj = dt_time.fromisoformat(config.RESET_TIME)
+            reset_time_str = shared_config.get('RESET_TIME', "03:00")
+            reset_time_obj = dt_time.fromisoformat(reset_time_str)
             today_reset_dt = now.replace(hour=reset_time_obj.hour, minute=reset_time_obj.minute, second=0, microsecond=0)
 
             if now >= today_reset_dt and last_reset_dt < today_reset_dt:
@@ -90,9 +113,14 @@ def main():
                 shared_state.save_state()
 
             # 2. 确定当前是否应该处于暂停状态
-            limit_bytes = config.DOWNLOAD_LIMIT_GB * (1024 ** 3)
+            limit_gb = shared_config.get('DOWNLOAD_LIMIT_GB', 500)
+            limit_bytes = limit_gb * (1024 ** 3)
             current_bytes = shared_state.get_bytes()
-            in_window = is_in_time_window()
+            
+            # 从动态配置中获取时间窗口
+            allowed_windows_str = shared_config.get('ALLOWED_TIME_WINDOWS', [["00:00", "23:59"]])
+            in_window = is_in_time_window(allowed_windows_str)
+            
             should_be_paused = (current_bytes >= limit_bytes) or not in_window
 
             # 3. 根据状态执行操作
@@ -105,7 +133,7 @@ def main():
                     if not in_window:
                         pause_reasons.append("不在允许的时间窗口内")
                     if current_bytes >= limit_bytes:
-                        pause_reasons.append(f"已达到下载限制: {current_bytes / (1024**3):.2f}/{config.DOWNLOAD_LIMIT_GB} GB")
+                        pause_reasons.append(f"已达到下载限制: {current_bytes / (1024**3):.2f}/{limit_gb} GB")
                     logger.info(f"{' 且 '.join(pause_reasons)}。正在暂停。")
 
                 # 计算下一个可能的恢复时间
@@ -118,7 +146,8 @@ def main():
 
                 # 如果是因为达到下载限制，计算下一个重置时间
                 if current_bytes >= limit_bytes:
-                    reset_time_obj = dt_time.fromisoformat(config.RESET_TIME)
+                    reset_time_str = shared_config.get('RESET_TIME', "03:00")
+                    reset_time_obj = dt_time.fromisoformat(reset_time_str)
                     next_reset_dt = now_dt.replace(hour=reset_time_obj.hour, minute=reset_time_obj.minute, second=0, microsecond=0)
                     if now_dt >= next_reset_dt:
                         next_reset_dt += timedelta(days=1)
@@ -165,10 +194,11 @@ def main():
                     total_speed = shared_state.get_total_speed_mbps()
                     total_downloaded_gb = shared_state.get_bytes() / (1024**3)
                     active_downloads = len([s for s in shared_state._process_speeds.values() if s > 0])
+                    concurrent_downloads = shared_config.get('CONCURRENT_DOWNLOADS', 0)
                     
                     logger.info(
                         f"[下载] 总速度: {total_speed:.2f} MB/s | "
-                        f"活动连接: {active_downloads}/{config.CONCURRENT_DOWNLOADS} | "
+                        f"活动连接: {active_downloads}/{concurrent_downloads} | "
                         f"总下载量: {total_downloaded_gb:.2f} GB"
                     )
                     last_summary_time = current_time
