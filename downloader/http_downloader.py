@@ -3,9 +3,11 @@
 import time
 import requests
 import logging
-from config import CHUNK_SIZE
 
 logger = logging.getLogger(__name__)
+
+# 定义下载块大小 (Bytes)
+CHUNK_SIZE = 1024 * 1024  # 1 MB
 
 def download_http(url: str, shared_state, process_id: int):
     """
